@@ -1,26 +1,24 @@
-
-Apk feature extractor · PY
 # Static analysis feature extractor for uploaded APK files, using
 # androguard. Produces the exact feature dict expected by
 # ApkThreatScoringModel (apk_model.py) and main.py's /analyze-apk endpoint.
- 
+
 import re
- 
+
 try:
     # androguard >= 4.x
     from androguard.core.apk import APK
 except ImportError:
     # androguard <= 3.4.x
     from androguard.core.bytecodes.apk import APK
- 
- 
+
+
 KNOWN_APP_NAMES = {
     "whatsapp", "instagram", "facebook", "gmail", "google play",
     "playstore", "play store", "paytm", "phonepe", "googlepay",
     "google pay", "sbi", "hdfc bank", "icici bank", "amazon",
     "netflix", "youtube", "telegram", "banking",
 }
- 
+
 KNOWN_LEGIT_PACKAGE_PREFIXES = (
     "com.whatsapp", "com.instagram", "com.facebook",
     "com.google.android.gm", "com.android.vending",
@@ -30,7 +28,7 @@ KNOWN_LEGIT_PACKAGE_PREFIXES = (
     "com.amazon.", "com.netflix.", "com.google.android.youtube",
     "org.telegram.messenger",
 )
- 
+
 DANGEROUS_PERMISSIONS = {
     "android.permission.READ_SMS",
     "android.permission.SEND_SMS",
@@ -52,7 +50,7 @@ DANGEROUS_PERMISSIONS = {
     "android.permission.READ_PHONE_STATE",
     "android.permission.PROCESS_OUTGOING_CALLS",
 }
- 
+
 SUSPICIOUS_CODE_STRINGS = [
     "DexClassLoader",
     "PathClassLoader",
@@ -69,21 +67,21 @@ SUSPICIOUS_CODE_STRINGS = [
     "sendTextMessage",
     "SmsManager",
 ]
- 
- 
+
+
 class APKFeatureExtractor:
     """Extracts static-analysis features from an APK file on disk."""
- 
+
     def extract(self, apk_path: str) -> dict:
         features = self._default_features()
- 
+
         try:
             apk = APK(apk_path)
         except Exception:
             features["is_unparseable"] = 1
             return features
- 
-        # ── Signing ──────────────────────────────────────────────
+
+        # Signing
         try:
             v1 = bool(apk.is_signed_v1())
             v2 = bool(apk.is_signed_v2()) if hasattr(apk, "is_signed_v2") else False
@@ -93,8 +91,8 @@ class APKFeatureExtractor:
             features["v1_only_signature"] = int(v1 and not (v2 or v3))
         except Exception:
             pass
- 
-        # ── Manifest / application attributes ───────────────────
+
+        # Manifest / application attributes
         try:
             features["is_debuggable"] = int(
                 (apk.get_attribute_value("application", "debuggable") or "").lower()
@@ -102,7 +100,7 @@ class APKFeatureExtractor:
             )
         except Exception:
             pass
- 
+
         try:
             features["allows_backup"] = int(
                 (apk.get_attribute_value("application", "allowBackup") or "true").lower()
@@ -110,22 +108,22 @@ class APKFeatureExtractor:
             )
         except Exception:
             features["allows_backup"] = 1
- 
-        # ── SDK version ──────────────────────────────────────────
+
+        # SDK version
         try:
             min_sdk = apk.get_min_sdk_version()
             min_sdk = int(min_sdk) if min_sdk is not None else 21
             features["min_sdk_low"] = int(min_sdk < 21)
         except Exception:
             pass
- 
-        # ── Permissions ──────────────────────────────────────────
+
+        # Permissions
         try:
             perms = set(apk.get_permissions() or [])
             features["total_permission_count"] = len(perms)
             dangerous = perms & DANGEROUS_PERMISSIONS
             features["dangerous_permission_count"] = len(dangerous)
- 
+
             features["has_sms_permissions"] = int(
                 any("SMS" in p for p in perms)
             )
@@ -144,9 +142,7 @@ class APKFeatureExtractor:
             features["has_contacts_permission"] = int(
                 any("CONTACTS" in p for p in perms)
             )
- 
-            # Classic banking-trojan combo: SMS access + ability to
-            # draw overlays and/or silently install packages.
+
             features["has_trojan_permission_combo"] = int(
                 features["has_sms_permissions"]
                 and (
@@ -157,22 +153,22 @@ class APKFeatureExtractor:
             )
         except Exception:
             pass
- 
-        # ── Identity / package name spoofing ────────────────────
+
+        # Identity / package name spoofing
         try:
             package = (apk.get_package() or "").lower()
             app_label = (apk.get_app_name() or "").lower()
- 
+
             looks_legit = any(
                 package.startswith(prefix) for prefix in KNOWN_LEGIT_PACKAGE_PREFIXES
             )
             claims_known_name = any(name in app_label for name in KNOWN_APP_NAMES)
- 
+
             features["mimics_known_app_name"] = int(claims_known_name and not looks_legit)
         except Exception:
             pass
- 
-        # ── Components ───────────────────────────────────────────
+
+        # Components
         try:
             activities = apk.get_activities() or []
             services = apk.get_services() or []
@@ -183,15 +179,15 @@ class APKFeatureExtractor:
             )
         except Exception:
             pass
- 
+
         try:
             features["has_launcher_icon"] = int(
                 bool(apk.get_main_activity())
             )
         except Exception:
             pass
- 
-        # ── Dex / native libs / multidex ────────────────────────
+
+        # Dex / native libs / multidex
         try:
             all_files = apk.get_files() or []
             dex_files = [f for f in all_files if f.endswith(".dex")]
@@ -201,8 +197,8 @@ class APKFeatureExtractor:
             )
         except Exception:
             pass
- 
-        # ── Suspicious code strings (scan raw dex bytes) ────────
+
+        # Suspicious code strings (scan raw dex bytes)
         try:
             hits = 0
             for dex_name in (apk.get_dex_names() if hasattr(apk, "get_dex_names") else ["classes.dex"]):
@@ -219,7 +215,7 @@ class APKFeatureExtractor:
                 for pattern in SUSPICIOUS_CODE_STRINGS:
                     hits += len(re.findall(re.escape(pattern), text))
             features["suspicious_code_string_hits"] = hits
- 
+
             features["uses_dynamic_code_loading"] = int(
                 any(
                     kw in (locals().get("text") or "")
@@ -228,9 +224,9 @@ class APKFeatureExtractor:
             )
         except Exception:
             pass
- 
+
         return features
- 
+
     @staticmethod
     def _default_features() -> dict:
         return {
@@ -257,10 +253,7 @@ class APKFeatureExtractor:
             "uses_dynamic_code_loading": 0,
             "uses_native_libs": 0,
             "has_launcher_icon": 0,
-        }
- 
-
-
+     }
 
 
 
