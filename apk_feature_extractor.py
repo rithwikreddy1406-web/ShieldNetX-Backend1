@@ -1,13 +1,8 @@
 
 Apk feature extractor · PY
-"""
-apk_feature_extractor.py
- 
-Static analysis feature extractor for uploaded APK files, using
-androguard. Produces the exact feature dict expected by
-ApkThreatScoringModel (apk_model.py) and by main.py's /analyze-apk
-endpoint.
-"""
+# Static analysis feature extractor for uploaded APK files, using
+# androguard. Produces the exact feature dict expected by
+# ApkThreatScoringModel (apk_model.py) and main.py's /analyze-apk endpoint.
  
 import re
  
@@ -263,6 +258,21 @@ class APKFeatureExtractor:
             "uses_native_libs": 0,
             "has_launcher_icon": 0,
         }
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
  
 
 
